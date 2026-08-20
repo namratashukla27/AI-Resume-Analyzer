@@ -41,94 +41,171 @@ useEffect(() => {
 
 
   async function handleUpload(e) {
-    const file = e.target.files[0];
+  const file = e.target.files[0];
 
-    if (!file) return;
+  if (!file) return;
+
+  try {
+    setLoading(true);
+    setAiResult("");
+    setAnalysisData({});
+    setScore(0);
 
     setFileName(file.name);
     localStorage.setItem("fileName", file.name);
 
+    // 1. Extract text from PDF
     const text = await extractTextFromPDF(file);
+
+    if (!text || !text.trim()) {
+      throw new Error(
+        "No readable text was found in this PDF. Please upload a text-based PDF."
+      );
+    }
+
+    console.log("PDF text extracted successfully:", text.length, "characters");
 
     setResumeText(text);
     localStorage.setItem("resumeText", text);
 
+    // 2. Send resume to Groq
+    console.log("Sending resume to Groq...");
 
-    try {
-  setLoading(true);
+    const result = await analyzeResumeWithGroq(text);
 
-  const result = await analyzeResumeWithGroq(text);
+    console.log("Groq response received:", result);
 
-setAiResult(result);
-localStorage.setItem("aiResult", result);
+    if (!result) {
+      throw new Error("Groq returned an empty response.");
+    }
 
-const sections = {
-  score: result.match(/ATS Score:(.*)/)?.[1],
+    setAiResult(result);
+    localStorage.setItem("aiResult", result);
 
-  summary: result.match(/Resume Summary:([\s\S]*?)Missing Skills:/)?.[1],
+    // 3. Extract sections from AI response
+    const sections = {
+      score: result.match(/ATS Score:\s*(.*)/)?.[1] || "",
 
-  skills: result.match(/Missing Skills:([\s\S]*?)Strengths:/)?.[1],
+      summary:
+        result.match(
+          /Resume Summary:\s*([\s\S]*?)\s*Missing Skills:/
+        )?.[1] || "",
 
-  strengths: result.match(/Strengths:([\s\S]*?)Weaknesses:/)?.[1],
+      skills:
+        result.match(
+          /Missing Skills:\s*([\s\S]*?)\s*Strengths:/
+        )?.[1] || "",
 
-  weaknesses: result.match(/Weaknesses:([\s\S]*?)Suggestions:/)?.[1],
+      strengths:
+        result.match(
+          /Strengths:\s*([\s\S]*?)\s*Weaknesses:/
+        )?.[1] || "",
 
-  suggestions: result.match(/Suggestions:([\s\S]*?)Interview Questions:/)?.[1],
+      weaknesses:
+        result.match(
+          /Weaknesses:\s*([\s\S]*?)\s*Suggestions:/
+        )?.[1] || "",
 
-  interview: result.match(/Interview Questions:([\s\S]*?)Recommended Courses:/)?.[1],
+      suggestions:
+        result.match(
+          /Suggestions:\s*([\s\S]*?)\s*Interview Questions:/
+        )?.[1] || "",
 
-  courses: result.match(/Recommended Courses:([\s\S]*)/)?.[1],
-};
-setAnalysisData(sections);
-localStorage.setItem("analysisData", JSON.stringify(sections));
+      interview:
+        result.match(
+          /Interview Questions:\s*([\s\S]*?)\s*Recommended Courses:/
+        )?.[1] || "",
 
-// Extract ATS score from Gemini response
-const scoreMatch = result.match(/(\d+)\/100/);
+      courses:
+        result.match(
+          /Recommended Courses:\s*([\s\S]*)/
+        )?.[1] || "",
+    };
 
-if (scoreMatch) {
-  const currentScore = Number(scoreMatch[1]);
+    setAnalysisData(sections);
+    localStorage.setItem("analysisData", JSON.stringify(sections));
 
-  setScore(currentScore);
-  localStorage.setItem("score", currentScore);
+    // 4. Extract ATS score
+    const scoreMatch = result.match(/ATS Score:\s*(\d+)\s*\/\s*100/);
 
-  // Total Analyses
-  let totalAnalyses = Number(localStorage.getItem("totalAnalyses")) || 0;
-  totalAnalyses++;
-  localStorage.setItem("totalAnalyses", totalAnalyses);
+    if (scoreMatch) {
+      const currentScore = Number(scoreMatch[1]);
 
-  // All Gemini ATS Scores
-  let scores = JSON.parse(localStorage.getItem("scores")) || [];
-  scores.push(currentScore);
-  localStorage.setItem("scores", JSON.stringify(scores));
+      setScore(currentScore);
+      localStorage.setItem("score", currentScore);
 
-  // Best ATS Score
-  const bestScore = Math.max(...scores);
-  localStorage.setItem("bestScore", bestScore);
+      // Total analyses
+      let totalAnalyses =
+        Number(localStorage.getItem("totalAnalyses")) || 0;
 
-  // Average ATS Score
-  const averageScore =
-    scores.reduce((sum, value) => sum + value, 0) / scores.length;
+      totalAnalyses++;
 
-  localStorage.setItem("averageScore", Math.round(averageScore));
-  // Save History
-let history = JSON.parse(localStorage.getItem("history")) || [];
+      localStorage.setItem(
+        "totalAnalyses",
+        totalAnalyses
+      );
 
-history.push({
-  fileName: file.name,
-  score: currentScore,
-  date: new Date().toLocaleString(),
-});
+      // Store all scores
+      let scores =
+        JSON.parse(localStorage.getItem("scores")) || [];
 
-localStorage.setItem("history", JSON.stringify(history));
-}} catch (error) {
-  console.error(error);
-  setAiResult("Unable to analyze resume. Please try again.");
+      scores.push(currentScore);
 
-} finally {
-  setLoading(false);
-}
+      localStorage.setItem(
+        "scores",
+        JSON.stringify(scores)
+      );
+
+      // Best score
+      const bestScore = Math.max(...scores);
+
+      localStorage.setItem(
+        "bestScore",
+        bestScore
+      );
+
+      // Average score
+      const averageScore =
+        scores.reduce(
+          (sum, value) => sum + value,
+          0
+        ) / scores.length;
+
+      localStorage.setItem(
+        "averageScore",
+        Math.round(averageScore)
+      );
+
+      // Save history
+      let history =
+        JSON.parse(localStorage.getItem("history")) || [];
+
+      history.push({
+        fileName: file.name,
+        score: currentScore,
+        date: new Date().toLocaleString(),
+      });
+
+      localStorage.setItem(
+        "history",
+        JSON.stringify(history)
+      );
+    } else {
+      console.warn(
+        "ATS score could not be found in Groq response."
+      );
+    }
+  } catch (error) {
+    console.error("Resume analysis error:", error);
+
+    setAiResult(
+      error?.message ||
+        "Unable to analyze resume. Please try again."
+    );
+  } finally {
+    setLoading(false);
   }
-
+}
   return (
     <div className="container">
 

@@ -1,8 +1,10 @@
 import axios from "axios";
 
 const API_KEY = import.meta.env.VITE_GROQ_API_KEY;
+console.log("Groq API key loaded:", !!API_KEY);
 
 export async function analyzeResumeWithGroq(resumeText) {
+  console.log("Resume text received:", resumeText);
   const prompt = `
 You are an expert ATS Resume Analyzer.
 
@@ -64,7 +66,7 @@ ${resumeText}`;
   const response = await axios.post(
     "https://api.groq.com/openai/v1/chat/completions",
     {
-      model: "llama-3.3-70b-versatile",
+      model: "openai/gpt-oss-20b",
       messages: [
         {
           role: "user",
